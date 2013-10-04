@@ -47,8 +47,10 @@ trait RepositoryService { self: AccountService =>
     Labels        .filter(_.byRepository(userName, repositoryName)).delete
     IssueComments .filter(_.byRepository(userName, repositoryName)).delete
     Issues        .filter(_.byRepository(userName, repositoryName)).delete
+    PullRequests  .filter(_.byRepository(userName, repositoryName)).delete
     IssueId       .filter(_.byRepository(userName, repositoryName)).delete
     Milestones    .filter(_.byRepository(userName, repositoryName)).delete
+    WebHooks      .filter(_.byRepository(userName, repositoryName)).delete
     Repositories  .filter(_.byRepository(userName, repositoryName)).delete
   }
 
@@ -71,9 +73,16 @@ trait RepositoryService { self: AccountService =>
    */
   def getRepository(userName: String, repositoryName: String, baseUrl: String): Option[RepositoryInfo] = {
     (Query(Repositories) filter { t => t.byRepository(userName, repositoryName) } firstOption) map { repository =>
+      // for getting issue count and pull request count
+      val issues = Query(Issues).filter { t =>
+        t.byRepository(repository.userName, repository.repositoryName) && (t.closed is false.bind)
+      }.map(_.pullRequest).list
+
       new RepositoryInfo(
         JGitUtil.getRepositoryInfo(repository.userName, repository.repositoryName, baseUrl),
         repository,
+        issues.size,
+        issues.filter(_ == true).size,
         getForkedCount(
           repository.originUserName.getOrElse(repository.userName),
           repository.originRepositoryName.getOrElse(repository.repositoryName)
@@ -201,28 +210,31 @@ trait RepositoryService { self: AccountService =>
     }.list.length
 
 
-  def getForkedRepositoryTree(userName: String, repositoryName: String): RepositoryTreeNode = {
-    RepositoryTreeNode(userName, repositoryName,
-      Query(Repositories).filter { t =>
-        (t.parentUserName is userName.bind) && (t.parentRepositoryName is repositoryName.bind)
-      }.map { t =>
-        t.userName ~ t.repositoryName
-      }.list.map { case (userName, repositoryName) =>
-        getForkedRepositoryTree(userName, repositoryName)
-      }
-    )
-  }
+  def getForkedRepositories(userName: String, repositoryName: String): List[String] =
+    Query(Repositories).filter { t =>
+      (t.originUserName is userName.bind) && (t.originRepositoryName is repositoryName.bind)
+    }
+    .sortBy(_.userName asc).map(_.userName).list
 
 }
 
 object RepositoryService {
 
   case class RepositoryInfo(owner: String, name: String, url: String, repository: Repository,
-    commitCount: Int, forkedCount: Int, branchList: List[String], tags: List[util.JGitUtil.TagInfo]){
+    issueCount: Int, pullCount: Int, commitCount: Int, forkedCount: Int,
+    branchList: List[String], tags: List[util.JGitUtil.TagInfo]){
 
-    def this(repo: JGitUtil.RepositoryInfo, model: Repository, forkedCount: Int) = {
-      this(repo.owner, repo.name, repo.url, model, repo.commitCount, forkedCount, repo.branchList, repo.tags)
-    }
+    /**
+     * Creates instance with issue count and pull request count.
+     */
+    def this(repo: JGitUtil.RepositoryInfo, model: Repository, issueCount: Int, pullCount: Int, forkedCount: Int) =
+      this(repo.owner, repo.name, repo.url, model, issueCount, pullCount, repo.commitCount, forkedCount, repo.branchList, repo.tags)
+
+    /**
+     * Creates instance without issue count and pull request count.
+     */
+    def this(repo: JGitUtil.RepositoryInfo, model: Repository, forkedCount: Int) =
+      this(repo.owner, repo.name, repo.url, model, 0, 0, repo.commitCount, forkedCount, repo.branchList, repo.tags)
   }
 
   case class RepositoryTreeNode(owner: String, name: String, children: List[RepositoryTreeNode])

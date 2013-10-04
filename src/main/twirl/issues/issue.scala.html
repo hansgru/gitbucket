@@ -18,7 +18,7 @@
   <div class="row-fluid">
     <div class="span10">
       @issuedetail(issue, comments, collaborators, milestones, hasWritePermission, repository)
-      @commentlist(comments, hasWritePermission, repository)
+      @commentlist(issue, comments, hasWritePermission, repository)
       @commentform(issue, hasWritePermission, repository)
     </div>
     <div class="span2">
@@ -29,19 +29,19 @@
       }
       <div class="small" style="text-align: center;">
         @defining(comments.filter( _.action.contains("comment") ).size){ count =>
-          <strong>@count</strong> @plural(count, "comment")
+          <span class="strong">@count</span> @plural(count, "comment")
         }
       </div>
       <hr/>
       <div style="margin-bottom: 8px;">
-      <strong>Labels</strong>
+      <span class="strong">Labels</span>
       @if(hasWritePermission){
         <div class="pull-right">
           @helper.html.dropdown() {
             @labels.map { label =>
               <li>
                 <a href="#" class="toggle-label" data-label-id="@label.labelId">
-                  <i class="@{if(issueLabels.exists(_.labelId == label.labelId)) "icon-ok" else "icon-white"}"></i>
+                  @helper.html.checkicon(issueLabels.exists(_.labelId == label.labelId))
                   <span class="label" style="background-color: #@label.color;">&nbsp;</span>
                   @label.labelName
                 </a>

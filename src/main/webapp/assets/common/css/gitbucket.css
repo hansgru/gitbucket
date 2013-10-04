@@ -38,11 +38,17 @@ div.nav-collapse a.menu-last {
   margin-right: 30px;
 }
 
-div.gitbucket-version {
+.navbar .brand {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.navbar .brand img {
+  vertical-align: bottom;
+}
+
+span.header-version {
   font-size: small;
-  color: silver;
-  float: right;
-  margin-right: 10px;
 }
 
 /* ======================================================================== */
@@ -56,7 +62,7 @@ table.global-nav {
 table.global-nav th {
   padding-top: 5px;
   padding-bottom: 8px;
-  width: 20%;
+  width: 16%;
   border-bottom: 2px solid silver;
   cursor: pointer;
 }
@@ -91,10 +97,6 @@ div.head {
   margin-bottom: 10px;
 }
 
-div.head a {
-  font-weight: bold;
-}
-
 div.head div.forked {
   font-size: 60%;
   color: #999999;
@@ -103,7 +105,6 @@ div.head div.forked {
 div.head div.forked a {
   font-weight: normal;
 }
-
 
 div.container {
   width: 920px;
@@ -297,6 +298,10 @@ ul.dropdown-menu :last-child {
   border-bottom: none;
 }
 
+span.highlight {
+  background-color: #ffff88;
+}
+
 /****************************************************************************/
 /* Sign-in form */
 /****************************************************************************/
@@ -357,6 +362,23 @@ ul.nav-stacked.side-menu li.active a:hover {
 }
 
 /****************************************************************************/
+/* Activity */
+/****************************************************************************/
+div.activity-icon-large {
+  position: absolute;
+  padding-top: 8px;
+}
+
+div.activity-icon-small {
+  position: absolute;
+  padding-left: 8px;
+}
+
+div.activity-content {
+  margin-left: 40px;
+}
+
+/****************************************************************************/
 /* Repository Viewer */
 /****************************************************************************/
 table.table-file-list {
@@ -404,7 +426,7 @@ pre.commit-description {
 #repository-url {
   background-color: white;
   cursor: default;
-  width: 350px;
+  width: 300px;
 }
 
 ul#commit-file-list {
@@ -611,10 +633,24 @@ div.issue-comment-action {
 }
 
 /****************************************************************************/
+/* Pull Request */
+/****************************************************************************/
+div.pullreq-info {
+  border: 1px solid #ddd;
+  background-color: #f8f8f8;
+  margin-bottom: 10px;
+  padding: 8px;
+}
+
+/****************************************************************************/
 /* Wiki */
 /****************************************************************************/
 h1.wiki-title {
   margin-top: 0px;
+}
+
+a.absent {
+  color: #c00;
 }
 
 /****************************************************************************/

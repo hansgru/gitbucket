@@ -1,6 +1,7 @@
 package app
 
-import util.{FileUtil}
+import _root_.util.{Keys, FileUtil}
+import util.ControlUtil._
 import org.scalatra._
 import org.scalatra.servlet.{MultipartConfig, FileUploadSupport}
 import org.apache.commons.io.FileUtils
@@ -18,10 +19,9 @@ class FileUploadController extends ScalatraServlet
 
   post("/image"){
     fileParams.get("file") match {
-      case Some(file) if(FileUtil.isImage(file.name)) => {
-        val fileId  = generateFileId
+      case Some(file) if(FileUtil.isImage(file.name)) => defining(generateFileId){ fileId =>
         FileUtils.writeByteArrayToFile(getTemporaryFile(fileId), file.get)
-        session += "upload_" + fileId -> file.name
+        session += Keys.Session.Upload(fileId) -> file.name
         Ok(fileId)
       }
       case None => BadRequest

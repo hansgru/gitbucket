@@ -1,28 +1,34 @@
-@(members: service.RepositoryService.RepositoryTreeNode,
+@(originRepository: Option[service.RepositoryService.RepositoryInfo],
+  members: List[String],
   repository: service.RepositoryService.RepositoryInfo)(implicit context: app.Context)
 @import context._
 @import view.helpers._
 @html.main(s"${repository.owner}/${repository.name}", Some(repository)) {
+  @html.header("network", repository)
   <ul class="nav nav-tabs">
     <li class="active"><a href="@url(repository)/network/members">Members</a></li>
   </ul>
   <h3>Members of the @repository.name Network</h3>
-  <ul>
-    @renderTree(members)
-  </ul>
-}
-
-@renderTree(node: service.RepositoryService.RepositoryTreeNode) = {
-  <li>
-    <div style="font-size: 120%; margin-bottom: 8px;">
-      @avatar(node.owner, 20) <a href="@url(node.owner)">@node.owner</a> / <a href="@path/@node.owner/@node.name">@node.name</a>
-    </div>
-    @if(node.children.nonEmpty){
-      <ul>
-        @node.children.map { child =>
-          @renderTree(child)
-        }
-      </ul>
+  <div class="block">
+    @if(originRepository.isDefined){
+      @avatar(originRepository.get.owner, 20)
+      <span@if(repository.owner == originRepository.get.owner){ class="highlight"}>
+        <a href="@url(originRepository.get)">@originRepository.get.owner</a> / <a href="@path/@originRepository.get.owner/@originRepository.get.name">@originRepository.get.name</a>
+      </span>
+    } else {
+      @avatar(repository.repository.originUserName.get, 20)
+      <span@if(repository.owner == repository.repository.originUserName){ class="highlight"}>
+        @repository.repository.originUserName / @repository.repository.originRepositoryName
+      </span>
     }
-  </li>
+    (origin)
+  </div>
+  @members.map { owner =>
+    <div class="block">
+      @avatar(owner, 20)
+      <span@if(repository.owner == owner){ class="highlight"}>
+        <a href="@url(owner)">@owner</a> / <a href="@path/@owner/@repository.name">@repository.name</a>
+      </span>
+    </div>
+  }
 }

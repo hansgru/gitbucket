@@ -1,24 +1,26 @@
 package app
 
 import util.Directory._
-import util.{LockUtil, JGitUtil, UsersAuthenticator, ReferrerAuthenticator}
+import util.ControlUtil._
+import util._
 import service._
 import java.io.File
 import org.eclipse.jgit.api.Git
 import org.apache.commons.io._
 import jp.sf.amateras.scalatra.forms._
 import org.eclipse.jgit.lib.PersonIdent
+import scala.Some
 
 class CreateRepositoryController extends CreateRepositoryControllerBase
   with RepositoryService with AccountService with WikiService with LabelsService with ActivityService
-  with UsersAuthenticator with ReferrerAuthenticator
+  with UsersAuthenticator with ReadableUsersAuthenticator
 
 /**
  * Creates new repository.
  */
 trait CreateRepositoryControllerBase extends ControllerBase {
   self: RepositoryService with AccountService with WikiService with LabelsService with ActivityService
-    with UsersAuthenticator with ReferrerAuthenticator =>
+    with UsersAuthenticator with ReadableUsersAuthenticator =>
 
   case class RepositoryCreationForm(owner: String, name: String, description: Option[String], isPrivate: Boolean, createReadme: Boolean)
 
@@ -65,7 +67,7 @@ trait CreateRepositoryControllerBase extends ControllerBase {
         }
 
         // Insert default labels
-        insertDefaultLabels(loginUserName, form.name)
+        insertDefaultLabels(form.owner, form.name)
 
         // Create the actual repository
         val gitdir = getRepositoryDir(form.owner, form.name)
@@ -113,7 +115,7 @@ trait CreateRepositoryControllerBase extends ControllerBase {
     }
   })
 
-  post("/:owner/:repository/_fork")(referrersOnly { repository =>
+  get("/:owner/:repository/fork")(readableUsersOnly { repository =>
     val loginAccount   = context.loginAccount.get
     val loginUserName  = loginAccount.userName
 
@@ -148,7 +150,7 @@ trait CreateRepositoryControllerBase extends ControllerBase {
           getWikiRepositoryDir(loginUserName, repository.name))
 
         // insert commit id
-        JGitUtil.withGit(getRepositoryDir(loginUserName, repository.name)){ git =>
+        using(Git.open(getRepositoryDir(loginUserName, repository.name))){ git =>
           JGitUtil.getRepositoryInfo(loginUserName, repository.name, baseUrl).branchList.foreach { branch =>
             JGitUtil.getCommitLog(git, branch) match {
               case Right((commits, _)) => commits.foreach { commit =>
@@ -179,7 +181,7 @@ trait CreateRepositoryControllerBase extends ControllerBase {
   }
 
   private def existsAccount: Constraint = new Constraint(){
-    def validate(name: String, value: String): Option[String] =
+    override def validate(name: String, value: String): Option[String] =
       if(getAccountByUserName(value).isEmpty) Some("User or group does not exist.") else None
   }
 
@@ -187,7 +189,7 @@ trait CreateRepositoryControllerBase extends ControllerBase {
    * Duplicate check for the repository name.
    */
   private def unique: Constraint = new Constraint(){
-    def validate(name: String, value: String): Option[String] =
+    override def validate(name: String, value: String, params: Map[String, String]): Option[String] =
       params.get("owner").flatMap { userName =>
         getRepositoryNamesOfUser(userName).find(_ == value).map(_ => "Repository already exists.")
       }

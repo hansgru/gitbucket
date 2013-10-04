@@ -3,12 +3,12 @@
 @import view.helpers._
 <div class="pull-right">
   <div class="input-prepend">
-    <input type="button" id="fork" class="btn" value="Fork" style="margin-bottom: 10px;"/>
+    <a href="@path/@repository.owner/@repository.name/fork" class="btn" style="margin-bottom: 10px;">Fork</a>
     <span class="add-on"><a href="@url(repository)/network/members">@repository.forkedCount</a></span>
   </div>
 </div>
 <div class="head">
-  <a href="@url(repository.owner)">@repository.owner</a> / <a href="@url(repository)">@repository.name</a>
+  <a href="@url(repository.owner)">@repository.owner</a> / <a href="@url(repository)" class="strong">@repository.name</a>
   @if(repository.repository.isPrivate){
     <i class="icon-lock"></i>
   }
@@ -27,34 +27,34 @@
     </th>
     <th class="box-header@if(active=="issues"){ active}">
       <a href="@url(repository)/issues">Issues</a>
+      @if(repository.issueCount > 0){
+        <span class="badge">@repository.issueCount</span>
+      }
     </th>
     <th class="box-header@if(active=="pulls"){ active}">
       <a href="@url(repository)/pulls">Pull Requests</a>
+      @if(repository.pullCount > 0){
+        <span class="badge">@repository.pullCount</span>
+      }
     </th>
     <th class="box-header@if(active=="wiki"){ active}">
       <a href="@url(repository)/wiki">Wiki</a>
+    </th>
+    <th class="box-header@if(active=="network"){ active}">
+      <a href="@url(repository)/network/members">Network</a>
     </th>
     @if(loginAccount.isDefined && (loginAccount.get.isAdmin || loginAccount.get.userName == repository.owner)){
     <th class="box-header@if(active=="settings"){ active}">
       <a href="@url(repository)/settings">Settings</a>
     </th>
     }
-  </tr>  
+  </tr>
 </table>
-<form method="POST" id="repository_form">
-</form>
 <script type="text/javascript">
 $(function(){
   $('table.global-nav th.box-header').click(function(){
     location.href = $(this).find('a').attr('href');
     return false;
-  });
-
-  // TODO Execute by Ajax?
-  $('#fork').click(function(){
-    var form = $('form#repository_form');
-    form.attr('action', '@path/@repository.owner/@repository.name/_fork');
-    form.submit();
   });
 });
 </script>

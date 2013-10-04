@@ -1,8 +1,8 @@
 package service
 
-import model.Issue
 import util.{FileUtil, StringUtil, JGitUtil}
 import util.Directory._
+import util.ControlUtil._
 import model.Issue
 import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.treewalk.TreeWalk
@@ -10,7 +10,8 @@ import scala.collection.mutable.ListBuffer
 import org.eclipse.jgit.lib.FileMode
 import org.eclipse.jgit.api.Git
 
-trait RepositorySearchService { self: IssuesService =>
+trait
+RepositorySearchService { self: IssuesService =>
   import RepositorySearchService._
 
   def countIssues(owner: String, repository: String, query: String): Int =
@@ -28,12 +29,12 @@ trait RepositorySearchService { self: IssuesService =>
     }
 
   def countFiles(owner: String, repository: String, query: String): Int =
-    JGitUtil.withGit(getRepositoryDir(owner, repository)){ git =>
+    using(Git.open(getRepositoryDir(owner, repository))){ git =>
       if(JGitUtil.isEmpty(git)) 0 else searchRepositoryFiles(git, query).length
     }
 
   def searchFiles(owner: String, repository: String, query: String): List[FileSearchResult] =
-    JGitUtil.withGit(getRepositoryDir(owner, repository)){ git =>
+    using(Git.open(getRepositoryDir(owner, repository))){ git =>
       if(JGitUtil.isEmpty(git)){
         Nil
       } else {
@@ -65,7 +66,7 @@ trait RepositorySearchService { self: IssuesService =>
       if(treeWalk.getFileMode(0) != FileMode.TREE){
         JGitUtil.getContent(git, treeWalk.getObjectId(0), false).foreach { bytes =>
           if(FileUtil.isText(bytes)){
-            val text      = new String(bytes, "UTF-8")
+            val text      = StringUtil.convertFromByteArray(bytes)
             val lowerText = text.toLowerCase
             val indices   = keywords.map(lowerText.indexOf _)
             if(!indices.exists(_ < 0)){
@@ -97,7 +98,7 @@ object RepositorySearchService {
       val lineNumber = content.substring(0, indices.min).split("\n").size - 1
       val highlightText = StringUtil.escapeHtml(content.split("\n").drop(lineNumber).take(5).mkString("\n"))
         .replaceAll("(?i)(" + keywords.map("\\Q" + _ + "\\E").mkString("|") +  ")",
-        "<span style=\"background-color: #ffff88;;\">$1</span>")
+        "<span class=\"highlight\">$1</span>")
       (highlightText, lineNumber + 1)
     } else {
       (content.split("\n").take(5).mkString("\n"), 1)

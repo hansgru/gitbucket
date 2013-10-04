@@ -4,7 +4,11 @@ import java.io.File
 import java.util.Date
 import org.eclipse.jgit.api.Git
 import org.apache.commons.io.FileUtils
-import util.{Directory, JGitUtil, LockUtil}
+import util.{StringUtil, Directory, JGitUtil, LockUtil}
+import util.ControlUtil._
+import org.eclipse.jgit.treewalk.CanonicalTreeParser
+import org.eclipse.jgit.diff.DiffFormatter
+import org.eclipse.jgit.api.errors.PatchApplyException
 
 object WikiService {
   
@@ -15,8 +19,9 @@ object WikiService {
    * @param content the page content
    * @param committer the last committer
    * @param time the last modified time
+   * @param id the latest commit id
    */
-  case class WikiPageInfo(name: String, content: String, committer: String, time: Date)
+  case class WikiPageInfo(name: String, content: String, committer: String, time: Date, id: String)
   
   /**
    * The model for wiki page history.
@@ -33,40 +38,40 @@ object WikiService {
 trait WikiService {
   import WikiService._
 
-  def createWikiRepository(loginAccount: model.Account, owner: String, repository: String): Unit = {
+  def createWikiRepository(loginAccount: model.Account, owner: String, repository: String): Unit =
     LockUtil.lock(s"${owner}/${repository}/wiki"){
-      val dir = Directory.getWikiRepositoryDir(owner, repository)
-      if(!dir.exists){
-        try {
-          JGitUtil.initRepository(dir)
-          saveWikiPage(owner, repository, "Home", "Home", s"Welcome to the ${repository} wiki!!", loginAccount, "Initial Commit")
-        } finally {
-          // once delete cloned repository because initial cloned repository does not have 'branch.master.merge'
-          FileUtils.deleteDirectory(Directory.getWikiWorkDir(owner, repository))
+      defining(Directory.getWikiRepositoryDir(owner, repository)){ dir =>
+        if(!dir.exists){
+          try {
+            JGitUtil.initRepository(dir)
+            saveWikiPage(owner, repository, "Home", "Home", s"Welcome to the ${repository} wiki!!", loginAccount, "Initial Commit", None)
+          } finally {
+            // once delete cloned repository because initial cloned repository does not have 'branch.master.merge'
+            FileUtils.deleteDirectory(Directory.getWikiWorkDir(owner, repository))
+          }
         }
       }
     }
-  }
-  
+
   /**
    * Returns the wiki page.
    */
   def getWikiPage(owner: String, repository: String, pageName: String): Option[WikiPageInfo] = {
-    JGitUtil.withGit(Directory.getWikiRepositoryDir(owner, repository)){ git =>
-      if(!JGitUtil.isEmpty(git)){
+    using(Git.open(Directory.getWikiRepositoryDir(owner, repository))){ git =>
+      optionIf(!JGitUtil.isEmpty(git)){
         JGitUtil.getFileList(git, "master", ".").find(_.name == pageName + ".md").map { file =>
-          WikiPageInfo(file.name, new String(git.getRepository.open(file.id).getBytes, "UTF-8"), file.committer, file.time)
+          WikiPageInfo(file.name, new String(git.getRepository.open(file.id).getBytes, "UTF-8"), file.committer, file.time, file.commitId)
         }
-      } else None
+      }
     }
   }
 
   /**
    * Returns the content of the specified file.
    */
-  def getFileContent(owner: String, repository: String, path: String): Option[Array[Byte]] = {
-    JGitUtil.withGit(Directory.getWikiRepositoryDir(owner, repository)){ git =>
-      if(!JGitUtil.isEmpty(git)){
+  def getFileContent(owner: String, repository: String, path: String): Option[Array[Byte]] =
+    using(Git.open(Directory.getWikiRepositoryDir(owner, repository))){ git =>
+      optionIf(!JGitUtil.isEmpty(git)){
         val index = path.lastIndexOf('/')
         val parentPath = if(index < 0) "."  else path.substring(0, index)
         val fileName   = if(index < 0) path else path.substring(index + 1)
@@ -74,56 +79,119 @@ trait WikiService {
         JGitUtil.getFileList(git, "master", parentPath).find(_.name == fileName).map { file =>
           git.getRepository.open(file.id).getBytes
         }
-      } else None
+      }
     }
-  }
 
   /**
    * Returns the list of wiki page names.
    */
   def getWikiPageList(owner: String, repository: String): List[String] = {
-    JGitUtil.withGit(Directory.getWikiRepositoryDir(owner, repository)){ git =>
+    using(Git.open(Directory.getWikiRepositoryDir(owner, repository))){ git =>
       JGitUtil.getFileList(git, "master", ".")
         .filter(_.name.endsWith(".md"))
         .map(_.name.replaceFirst("\\.md$", ""))
         .sortBy(x => x)
     }
   }
-  
+
+  /**
+   * Reverts specified changes.
+   */
+  def revertWikiPage(owner: String, repository: String, from: String, to: String,
+                     committer: model.Account, pageName: Option[String]): Boolean = {
+    LockUtil.lock(s"${owner}/${repository}/wiki"){
+      defining(Directory.getWikiWorkDir(owner, repository)){ workDir =>
+        // clone working copy
+        cloneOrPullWorkingCopy(workDir, owner, repository)
+
+        using(Git.open(workDir)){ git =>
+          val reader = git.getRepository.newObjectReader
+          val oldTreeIter = new CanonicalTreeParser
+          oldTreeIter.reset(reader, git.getRepository.resolve(from + "^{tree}"))
+
+          val newTreeIter = new CanonicalTreeParser
+          newTreeIter.reset(reader, git.getRepository.resolve(to + "^{tree}"))
+
+          import scala.collection.JavaConverters._
+          val diffs = git.diff.setNewTree(oldTreeIter).setOldTree(newTreeIter).call.asScala.filter { diff =>
+            pageName match {
+              case Some(x) => diff.getNewPath == x + ".md"
+              case None    => true
+            }
+          }
+
+          val patch = using(new java.io.ByteArrayOutputStream()){ out =>
+            val formatter = new DiffFormatter(out)
+            formatter.setRepository(git.getRepository)
+            formatter.format(diffs.asJava)
+            new String(out.toByteArray, "UTF-8")
+          }
+
+          try {
+            git.apply.setPatch(new java.io.ByteArrayInputStream(patch.getBytes("UTF-8"))).call
+            git.add.addFilepattern(".").call
+            git.commit.setCommitter(committer.userName, committer.mailAddress).setMessage(pageName match {
+              case Some(x) => s"Revert ${from} ... ${to} on ${x}"
+              case None    => s"Revert ${from} ... ${to}"
+            }).call
+            git.push.call
+            true
+          } catch {
+            case ex: PatchApplyException => false
+          }
+        }
+      }
+    }
+  }
+
+
   /**
    * Save the wiki page.
    */
   def saveWikiPage(owner: String, repository: String, currentPageName: String, newPageName: String,
-      content: String, committer: model.Account, message: String): Unit = {
+      content: String, committer: model.Account, message: String, currentId: Option[String]): Option[String] = {
 
     LockUtil.lock(s"${owner}/${repository}/wiki"){
-      // clone working copy
-      val workDir = Directory.getWikiWorkDir(owner, repository)
-      cloneOrPullWorkingCopy(workDir, owner, repository)
+      defining(Directory.getWikiWorkDir(owner, repository)){ workDir =>
+        // clone working copy
+        cloneOrPullWorkingCopy(workDir, owner, repository)
 
-      // write as file
-      JGitUtil.withGit(workDir){ git =>
-        val file = new File(workDir, newPageName + ".md")
-        val added = if(!file.exists || FileUtils.readFileToString(file, "UTF-8") != content){
-          FileUtils.writeStringToFile(file, content, "UTF-8")
-          git.add.addFilepattern(file.getName).call
-          true
-        } else {
-          false
-        }
+        // write as file
+        using(Git.open(workDir)){ git =>
+          defining(new File(workDir, newPageName + ".md")){ file =>
+            // new page
+            val created = !file.exists
 
-        // delete file
-        val deleted = if(currentPageName != "" && currentPageName != newPageName){
-          git.rm.addFilepattern(currentPageName + ".md").call
-          true
-        } else {
-          false
-        }
+            // created or updated
+            val added = executeIf(!file.exists || FileUtils.readFileToString(file, "UTF-8") != content){
+              FileUtils.writeStringToFile(file, content, "UTF-8")
+              git.add.addFilepattern(file.getName).call
+            }
 
-        // commit and push
-        if(added || deleted){
-          git.commit.setCommitter(committer.userName, committer.mailAddress).setMessage(message).call
-          git.push.call
+            // delete file
+            val deleted = executeIf(currentPageName != "" && currentPageName != newPageName){
+              git.rm.addFilepattern(currentPageName + ".md").call
+            }
+
+            // commit and push
+            optionIf(added || deleted){
+              defining(git.commit.setCommitter(committer.userName, committer.mailAddress)
+                .setMessage(if(message.trim.length == 0){
+                    if(deleted){
+                      s"Rename ${currentPageName} to ${newPageName}"
+                    } else if(created){
+                      s"Created ${newPageName}"
+                    } else {
+                      s"Updated ${newPageName}"
+                    }
+                  } else {
+                    message
+                  }).call){ commit =>
+                git.push.call
+                Some(commit.getName)
+              }
+            }
+          }
         }
       }
     }
@@ -135,35 +203,34 @@ trait WikiService {
   def deleteWikiPage(owner: String, repository: String, pageName: String,
                      committer: String, mailAddress: String, message: String): Unit = {
     LockUtil.lock(s"${owner}/${repository}/wiki"){
-      // clone working copy
-      val workDir = Directory.getWikiWorkDir(owner, repository)
-      cloneOrPullWorkingCopy(workDir, owner, repository)
+      defining(Directory.getWikiWorkDir(owner, repository)){ workDir =>
+        // clone working copy
+        cloneOrPullWorkingCopy(workDir, owner, repository)
 
-      // delete file
-      new File(workDir, pageName + ".md").delete
-    
-      JGitUtil.withGit(workDir){ git =>
-        git.rm.addFilepattern(pageName + ".md").call
-    
-        // commit and push
-        git.commit.setAuthor(committer, mailAddress).setMessage(message).call
-        git.push.call
+        // delete file
+        new File(workDir, pageName + ".md").delete
+
+        using(Git.open(workDir)){ git =>
+          git.rm.addFilepattern(pageName + ".md").call
+
+          // commit and push
+          git.commit.setCommitter(committer, mailAddress).setMessage(message).call
+          git.push.call
+        }
       }
     }
   }
 
   private def cloneOrPullWorkingCopy(workDir: File, owner: String, repository: String): Unit = {
     if(!workDir.exists){
-      val git =
-        Git.cloneRepository
-          .setURI(Directory.getWikiRepositoryDir(owner, repository).toURI.toString)
-          .setDirectory(workDir)
-          .call
-      git.getRepository.close  // close .git resources.
-    } else {
-      JGitUtil.withGit(workDir){ git =>
-        git.pull.call
-      }
+      Git.cloneRepository
+        .setURI(Directory.getWikiRepositoryDir(owner, repository).toURI.toString)
+        .setDirectory(workDir)
+        .call
+        .getRepository
+        .close
+    } else using(Git.open(workDir)){ git =>
+      git.pull.call
     }
   }
 
